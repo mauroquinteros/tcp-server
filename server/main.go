@@ -5,32 +5,49 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 )
 
 type Server struct {
-	clients map[net.Conn]bool
-	mutex   sync.RWMutex
+	clients  map[net.Conn]bool
+	channels map[string]map[net.Conn]bool
+	mutex    sync.RWMutex
 }
 
 func NewServer() *Server {
 	return &Server{
-		clients: make(map[net.Conn]bool),
+		clients:  make(map[net.Conn]bool),
+		channels: make(map[string]map[net.Conn]bool),
 	}
 }
 
-func (s *Server) broadcast(message string, sender net.Conn) {
+func (s *Server) subscribeToChannel(channel string, conn net.Conn) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if _, exists := s.channels[channel]; !exists {
+		s.channels[channel] = make(map[net.Conn]bool)
+	}
+	s.channels[channel][conn] = true
+	log.Printf("Client %s subscribed to channel %s", conn.RemoteAddr(), channel)
+}
+
+func (s *Server) broadcast(message string, channel string, sender net.Conn) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	for client := range s.clients {
-		if client != sender {
-			_, err := fmt.Fprintf(client, "%s\n", message)
-			if err != nil {
-				log.Printf("Error broadcasting to client: %v", err)
+	if subscribers, exists := s.channels[channel]; exists {
+		for client := range subscribers {
+			if client != sender {
+				_, err := fmt.Fprintf(client, "%s\n", message)
+				if err != nil {
+					log.Printf("Error broadcasting to client: %v", err)
+				}
 			}
 		}
 	}
+
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
@@ -44,15 +61,38 @@ func (s *Server) handleConnection(conn net.Conn) {
 	defer func() {
 		s.mutex.Lock()
 		delete(s.clients, conn)
+		for _, subscribers := range s.channels {
+			delete(subscribers, conn)
+		}
+
 		log.Printf("Client disconnected: %s", conn.RemoteAddr())
 		s.mutex.Unlock()
 	}()
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
-		message := scanner.Text()
-		log.Printf("Received message from %s: %s", conn.RemoteAddr(), message)
-		s.broadcast(message, conn)
+		rawMessage := scanner.Text()
+		parts := strings.Split(rawMessage, "|")
+
+		if len(parts) != 2 {
+			log.Printf("Invalid message format from %s: %s", conn.RemoteAddr(), rawMessage)
+			continue
+		}
+		messageType := "BROADCAST"
+		channel := strings.TrimPrefix(parts[0], "CHANNEL:")
+		content := strings.TrimPrefix(parts[1], "MESSAGE:")
+		if content == "SUBSCRIBE" {
+			messageType = "SUBSCRIBE"
+		}
+
+		switch messageType {
+		case "SUBSCRIBE":
+			s.subscribeToChannel(channel, conn)
+		case "BROADCAST":
+			log.Printf("Received message from %s on channel %s: %s", conn.RemoteAddr(), channel, content)
+			s.subscribeToChannel(channel, conn)
+			s.broadcast(content, channel, conn)
+		}
 	}
 }
 
