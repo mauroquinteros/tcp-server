@@ -1,0 +1,14 @@
+Hello from the test file!
+
+Random numbers: 42, 17, 99, 123
+Random text: Lorem ipsum dolor sit amet
+Special characters: !@#$%^&*()
+
+Current date: $(date)
+Random UUID: $(uuidgen)
+
+This is a multi-line
+test file with
+various content
+for testing our
+TCP file transfer.
