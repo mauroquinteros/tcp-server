@@ -2,10 +2,15 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 func setUpFlags() (string, string, bool) {
@@ -24,6 +29,23 @@ func setUpFlags() (string, string, bool) {
 	return *channel, *message, *receive
 }
 
+func readFile(path string) (string, string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read file: %v", err)
+	}
+
+	fileName := filepath.Base(path)
+	ext := filepath.Ext(fileName)
+	nameWithoutExt := strings.TrimSuffix(fileName, ext)
+	encoded := base64.StdEncoding.EncodeToString(content)
+
+	timestamp := time.Now().Format("20060102-150405")
+	fileNameWithTimestamp := fmt.Sprintf("%s_%s%s", nameWithoutExt, timestamp, ext)
+
+	return fileNameWithTimestamp, encoded, nil
+}
+
 func main() {
 	channel, message, receive := setUpFlags()
 
@@ -35,6 +57,10 @@ func main() {
 	defer conn.Close()
 
 	if receive {
+		if err := os.MkdirAll("downloads", 0755); err != nil {
+			log.Fatalf("Failed to create downloads directory: %v", err)
+		}
+
 		subscribeMsg := fmt.Sprintf("CHANNEL:%s|MESSAGE:SUBSCRIBE", channel)
 		_, err = fmt.Fprintf(conn, "%s\n", subscribeMsg)
 		if err != nil {
@@ -43,17 +69,59 @@ func main() {
 		log.Printf("Subscribed to channel %s", channel)
 
 		scanner := bufio.NewScanner(conn)
+		const maxCapacity = 10 * 1024 * 1024
+		scanner.Buffer(make([]byte, 0, maxCapacity), maxCapacity)
 		log.Printf("Listening for messages on channel %s", channel)
+
 		for scanner.Scan() {
 			message := scanner.Text()
-			log.Printf("Received message: %s\n", message)
+			parts := strings.Split(message, "|")
+
+			if len(parts) == 2 && strings.HasPrefix(parts[0], "FILE:") {
+				fileName := strings.TrimPrefix(parts[0], "FILE:")
+				content := strings.TrimPrefix(parts[1], "CONTENT:")
+
+				decoded, err := base64.StdEncoding.DecodeString(content)
+				if err != nil {
+					log.Fatalf("Failed to decode file: %v", err)
+					continue
+				}
+
+				filePath := filepath.Join("downloads", fileName)
+				if err := os.WriteFile(filePath, decoded, 0644); err != nil {
+					log.Printf("Error saving file: %v", err)
+					continue
+				}
+
+				log.Printf("Received and saved file: %s", fileName)
+			} else {
+				log.Printf("Received message: %s", message)
+			}
 		}
 	} else if message != "" {
-		broadcastMsg := fmt.Sprintf("CHANNEL:%s|MESSAGE:%s", channel, message)
-		_, err = fmt.Fprintf(conn, "%s\n", broadcastMsg)
-		if err != nil {
-			log.Fatalf("Failed to send message %v", err)
+		file, err := os.Stat(message)
+		if err == nil && !file.IsDir() {
+			fileName, encoded, err := readFile(message)
+			if err != nil {
+				log.Fatalf("Failed to read file: %v", err)
+			}
+			broadcastMsg := fmt.Sprintf("CHANNEL:%s|FILE:%s|CONTENT:%s", channel, fileName, encoded)
+			_, err = fmt.Fprintf(conn, "%s\n", broadcastMsg)
+
+			if err != nil {
+				log.Fatalf("Failed to send file %v", err)
+			}
+			log.Printf("Sent file %s (size: %d bytes) on channel %s", fileName, file.Size(), channel)
+		} else {
+			log.Println("The path message is", message)
+			broadcastMsg := fmt.Sprintf("CHANNEL:%s|MESSAGE:%s", channel, message)
+			_, err = fmt.Fprintf(conn, "%s\n", broadcastMsg)
+
+			if err != nil {
+				log.Fatalf("Failed to send message %v", err)
+			}
+			log.Printf("Sent message %s on channel %s", message, channel)
 		}
-		log.Printf("Sent message %s on channel %s", message, channel)
+
 	}
 }
