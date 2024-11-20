@@ -47,7 +47,6 @@ func (s *Server) broadcast(message string, channel string, sender net.Conn) {
 			}
 		}
 	}
-
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
@@ -70,29 +69,46 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}()
 
 	scanner := bufio.NewScanner(conn)
+	const maxCapacity = 10 * 1024 * 1024
+	scanner.Buffer(make([]byte, 0, maxCapacity), maxCapacity)
+
 	for scanner.Scan() {
 		rawMessage := scanner.Text()
 		parts := strings.Split(rawMessage, "|")
 
-		if len(parts) != 2 {
+		if len(parts) < 2 {
 			log.Printf("Invalid message format from %s: %s", conn.RemoteAddr(), rawMessage)
 			continue
 		}
-		messageType := "BROADCAST"
 		channel := strings.TrimPrefix(parts[0], "CHANNEL:")
-		content := strings.TrimPrefix(parts[1], "MESSAGE:")
-		if content == "SUBSCRIBE" {
-			messageType = "SUBSCRIBE"
-		}
 
-		switch messageType {
-		case "SUBSCRIBE":
+		if len(parts) == 2 {
+			content := strings.TrimPrefix(parts[1], "MESSAGE:")
+			messageType := "BROADCAST"
+			if content == "SUBSCRIBE" {
+				messageType = "SUBSCRIBE"
+			}
+
+			switch messageType {
+			case "SUBSCRIBE":
+				s.subscribeToChannel(channel, conn)
+			case "BROADCAST":
+				log.Printf("Received message from %s on channel %s: %s", conn.RemoteAddr(), channel, content)
+				s.subscribeToChannel(channel, conn)
+				s.broadcast(content, channel, conn)
+			}
+		} else if len(parts) == 3 {
+			fileName := strings.TrimPrefix(parts[1], "FILE:")
+			content := strings.TrimPrefix(parts[2], "CONTENT:")
+			log.Printf("Received file from %s on channel %s: %s", conn.RemoteAddr(), channel, fileName)
 			s.subscribeToChannel(channel, conn)
-		case "BROADCAST":
-			log.Printf("Received message from %s on channel %s: %s", conn.RemoteAddr(), channel, content)
-			s.subscribeToChannel(channel, conn)
-			s.broadcast(content, channel, conn)
+			fileContent := fmt.Sprintf("FILE:%s|CONTENT:%s", fileName, content)
+			s.broadcast(fileContent, channel, conn)
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("Error reading from connection: %v", err)
 	}
 }
 
