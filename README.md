@@ -24,7 +24,7 @@ go run ./client --send "Hello, world!" --channel 1
 go run ./client --send /path/to/file --channel 1
 ```
 
-#### Receive files
+#### Receive files and messages
 
 ```bash
 go run ./client --receive --channel 1
