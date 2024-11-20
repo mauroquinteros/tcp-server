@@ -36,14 +36,8 @@ func readFile(path string) (string, string, error) {
 	}
 
 	fileName := filepath.Base(path)
-	ext := filepath.Ext(fileName)
-	nameWithoutExt := strings.TrimSuffix(fileName, ext)
 	encoded := base64.StdEncoding.EncodeToString(content)
-
-	timestamp := time.Now().Format("20060102-150405")
-	fileNameWithTimestamp := fmt.Sprintf("%s_%s%s", nameWithoutExt, timestamp, ext)
-
-	return fileNameWithTimestamp, encoded, nil
+	return fileName, encoded, nil
 }
 
 func main() {
@@ -87,13 +81,18 @@ func main() {
 					continue
 				}
 
-				filePath := filepath.Join("downloads", fileName)
+				ext := filepath.Ext(fileName)
+				nameWithoutExt := strings.TrimSuffix(fileName, ext)
+				timestamp := time.Now().Format("20060102-150405")
+				fileNameWithTimestamp := fmt.Sprintf("%s-%s%s", nameWithoutExt, timestamp, ext)
+
+				filePath := filepath.Join("downloads", fileNameWithTimestamp)
 				if err := os.WriteFile(filePath, decoded, 0644); err != nil {
 					log.Printf("Error saving file: %v", err)
 					continue
 				}
 
-				log.Printf("Received and saved file: %s", fileName)
+				log.Printf("Received and saved file: %s", fileNameWithTimestamp)
 			} else {
 				log.Printf("Received message: %s", message)
 			}
