@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 func setUpFlags() (string, string, bool) {
@@ -81,29 +80,26 @@ func main() {
 					continue
 				}
 
-				ext := filepath.Ext(fileName)
-				nameWithoutExt := strings.TrimSuffix(fileName, ext)
-				timestamp := time.Now().Format("20060102-150405")
-				fileNameWithTimestamp := fmt.Sprintf("%s-%s%s", nameWithoutExt, timestamp, ext)
-
-				filePath := filepath.Join("downloads", fileNameWithTimestamp)
+				filePath := filepath.Join("downloads", fileName)
 				if err := os.WriteFile(filePath, decoded, 0644); err != nil {
 					log.Printf("Error saving file: %v", err)
 					continue
 				}
 
-				log.Printf("Received and saved file: %s", fileNameWithTimestamp)
+				log.Printf("Received and saved file: %s", fileName)
 			} else {
 				log.Printf("Received message: %s", message)
 			}
 		}
 	} else if message != "" {
 		file, err := os.Stat(message)
+
 		if err == nil && !file.IsDir() {
 			fileName, encoded, err := readFile(message)
 			if err != nil {
 				log.Fatalf("Failed to read file: %v", err)
 			}
+
 			broadcastMsg := fmt.Sprintf("CHANNEL:%s|FILE:%s|CONTENT:%s", channel, fileName, encoded)
 			_, err = fmt.Fprintf(conn, "%s\n", broadcastMsg)
 
@@ -112,7 +108,7 @@ func main() {
 			}
 			log.Printf("Sent file %s (size: %d bytes) on channel %s", fileName, file.Size(), channel)
 		} else {
-			log.Println("The path message is", message)
+			log.Println("The message is", message)
 			broadcastMsg := fmt.Sprintf("CHANNEL:%s|MESSAGE:%s", channel, message)
 			_, err = fmt.Fprintf(conn, "%s\n", broadcastMsg)
 
@@ -121,6 +117,5 @@ func main() {
 			}
 			log.Printf("Sent message %s on channel %s", message, channel)
 		}
-
 	}
 }

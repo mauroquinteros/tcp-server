@@ -10,14 +10,12 @@ import (
 )
 
 type Server struct {
-	clients  map[net.Conn]bool
 	channels map[string]map[net.Conn]bool
 	mutex    sync.RWMutex
 }
 
 func NewServer() *Server {
 	return &Server{
-		clients:  make(map[net.Conn]bool),
 		channels: make(map[string]map[net.Conn]bool),
 	}
 }
@@ -47,19 +45,15 @@ func (s *Server) broadcast(message string, channel string, sender net.Conn) {
 			}
 		}
 	}
+
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	log.Printf("New client connected: %s", conn.RemoteAddr())
 
-	s.mutex.Lock()
-	s.clients[conn] = true
-	s.mutex.Unlock()
-
 	defer func() {
 		s.mutex.Lock()
-		delete(s.clients, conn)
 		for _, subscribers := range s.channels {
 			delete(subscribers, conn)
 		}
